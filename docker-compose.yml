@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: data_source_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: school_management
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - data_source_network
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: data_source_elasticsearch
+    restart: always
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - cluster.name=data-source-cluster
+      - node.name=data-source-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - data_source_network
+
+  # PostgreSQL
+  postgresql:
+    image: postgres:16
+    container_name: data_source_postgresql
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: school_management
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+      - ./docker/postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - data_source_network
+
+  # Application container for testing
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: data_source_app
+    depends_on:
+      - mongodb
+      - elasticsearch
+      - postgresql
+    environment:
+      - MONGODB_URL=mongodb://admin:password@mongodb:27017/school_management?authSource=admin
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - POSTGRESQL_URL=postgresql://admin:password@postgresql:5432/school_management
+    volumes:
+      - .:/app
+    networks:
+      - data_source_network
+    command: tail -f /dev/null  # Keep container running for testing
+
+volumes:
+  mongodb_data:
+  elasticsearch_data:
+  postgresql_data:
+
+networks:
+  data_source_network:
+    driver: bridge
